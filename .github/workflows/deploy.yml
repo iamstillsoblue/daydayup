@@ -1,0 +1,50 @@
+name: Deploy
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  Deploy:
+    name: Deploy to Server
+    runs-on: ubuntu-latest
+    steps:
+      - name: Connect & Build & Deploy
+        env:
+          DAYDAYUP_KEY: ${{ secrets.DAYDAYUP_KEY }}
+          DAYDAYUP_USER: ${{ secrets.DAYDAYUP_USER }}
+          DAYDAYUP_DOMAIN: ${{ secrets.DAYDAYUP_DOMAIN }}
+        run: |
+          echo "Setting up SSH key..."
+          echo "$DAYDAYUP_KEY" > daydayup_key && chmod 600 daydayup_key
+
+          ssh -o StrictHostKeyChecking=no -o BatchMode=yes -i daydayup_key -p 2222 ${DAYDAYUP_USER}@${DAYDAYUP_DOMAIN} '
+            echo "Setting up file structure...";
+            mkdir -p ~/Developer/daydayup && cd ~/Developer/daydayup;
+
+            echo "Fetching the latest code...";
+            if [ -d .git ]; then
+              git checkout main;
+              git pull --rebase origin main;
+            else
+              rm -rf ~/Developer/daydayup/* ~/Developer/daydayup/.* 2>/dev/null;
+
+              git clone https://github.com/iamstillsoblue/daydayup.git .;
+            fi;
+
+            echo "Building the Docker image...";
+            sudo docker build -t daydayup . || { echo "Docker image build failed, aborting deployment! 💥"; exit 1; };
+
+            echo "Stopping and removing old containers...";
+            sudo docker ps -a -q --filter ancestor=daydayup | xargs -r sudo docker stop ;
+            sudo docker ps -a -q --filter ancestor=daydayup | xargs -r sudo docker rm ;
+
+            echo "Starting a new container...";
+            sudo docker run -d -p 1218:1218 --name daydayup daydayup;
+          '
+
+          echo "Cleaning up SSH key..."
+          rm -rf daydayup_key
+
+          echo "Deployment completed successfully! 🎉"
